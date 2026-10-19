@@ -1,4 +1,4 @@
-name: SAST Security Scan
+name: SAST Security Scan (3 Tools)
 
 on:
   push:
@@ -16,22 +16,64 @@ jobs:
     - name: Install SAST tools
       run: |
         sudo apt-get update
-        sudo apt-get install -y cppcheck flawfinder
+        sudo apt-get install -y cppcheck flawfinder clang clang-tools
 
+    # ==========================================
+    # ИНСТРУМЕНТ 1: CPPCHECK
+    # ==========================================
     - name: Run Cppcheck
       run: |
         echo "Running Cppcheck..."
         cppcheck --enable=all --inconclusive --std=c++17 --error-exitcode=1 main.cpp 2> cppcheck_report.txt || true
 
+    - name: Upload Cppcheck Report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: cppcheck-report
+        path: cppcheck_report.txt
+
+    # ==========================================
+    # ИНСТРУМЕНТ 2: FLAWFINDER
+    # ==========================================
     - name: Run Flawfinder
       run: |
         echo "Running Flawfinder..."
         flawfinder --minlevel=1 --html main.cpp > flawfinder_report.html || true
 
+    - name: Upload Flawfinder Report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: flawfinder-report
+        path: flawfinder_report.html
+
+    # ==========================================
+    # ИНСТРУМЕНТ 3: CLANG STATIC ANALYZER (scan-build)
+    # ==========================================
+    - name: Run Clang Static Analyzer
+      run: |
+        echo "Running Clang Static Analyzer..."
+        mkdir -p build_clang
+        cd build_clang
+        # scan-build перехватывает вызовы компилятора и анализирует код
+        scan-build -o ../clang_report cmake .. || true
+        scan-build -o ../clang_report make || true
+
+    - name: Upload Clang Report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: clang-report
+        path: clang_report/
+
+    # ==========================================
+    # СВОДКА И ПРОВЕРКА СТАТУСА
+    # ==========================================
     - name: Generate Job Summary
       if: always()
       run: |
-        echo "## 🔍 SAST Scan Results" >> $GITHUB_STEP_SUMMARY
+        echo "## 🔍 SAST Scan Results (3 Tools)" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "| Tool | Status | Report |" >> $GITHUB_STEP_SUMMARY
         echo "|------|--------|--------|" >> $GITHUB_STEP_SUMMARY
@@ -47,29 +89,28 @@ jobs:
         else
           echo "| Flawfinder | ✅ Clean | See Artifacts ⬇️ |" >> $GITHUB_STEP_SUMMARY
         fi
-
-    - name: Upload Cppcheck Report
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: cppcheck-report
-        path: cppcheck_report.txt
-
-    - name: Upload Flawfinder Report
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: flawfinder-report
-        path: flawfinder_report.html
+        
+        if [ -d clang_report ] && [ "$(ls -A clang_report)" ]; then
+          echo "| Clang SA | ❌ Issues Found | See Artifacts ⬇️ |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Clang SA | ✅ Clean | See Artifacts ⬇️ |" >> $GITHUB_STEP_SUMMARY
+        fi
 
     - name: Fail if vulnerabilities found
       if: always()
       run: |
+        FAILED=0
         if [ -f cppcheck_report.txt ] && grep -q "error:" cppcheck_report.txt; then
           echo "❌ Cppcheck found vulnerabilities!"
-          exit 1
+          FAILED=1
         fi
         if [ -f flawfinder_report.html ] && grep -q "Hits = [1-9]" flawfinder_report.html; then
           echo "❌ Flawfinder found vulnerabilities!"
+          FAILED=1
+        fi
+        # Для Clang мы не фейлим билд жестко, так как он часто выдает предупреждения стиля, 
+        # но артефакт сохранен для проверки преподавателем.
+        
+        if [ $FAILED -eq 1 ]; then
           exit 1
         fi
