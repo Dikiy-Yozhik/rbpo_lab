@@ -14,9 +14,9 @@ jobs:
       uses: actions/checkout@v4
 
     # ==========================================
-    # ИНСТРУМЕНТ 1: TRIVY (Filesystem Scan)
+    # ИНСТРУМЕНТ 1: TRIVY (Быстрый, дает SARIF для вкладки Security)
     # ==========================================
-    - name: Run Trivy vulnerability scanner (FS)
+    - name: Run Trivy vulnerability scanner
       uses: aquasecurity/trivy-action@master
       with:
         scan-type: 'fs'
@@ -24,7 +24,6 @@ jobs:
         format: 'table'
         output: 'trivy_report.txt'
         severity: 'CRITICAL,HIGH,MEDIUM,LOW'
-        # Trivy автоматически просканирует CMakeLists.txt на наличие известных уязвимых версий
 
     - name: Upload Trivy Report
       uses: actions/upload-artifact@v4
@@ -47,18 +46,22 @@ jobs:
       if: always()
 
     # ==========================================
-    # ИНСТРУМЕНТ 2: GRYPE (через Anchore Scan Action)
+    # ИНСТРУМЕНТ 2: OWASP DEPENDENCY-CHECK (Надежный, дает красивый HTML)
     # ==========================================
-    - name: Run Grype vulnerability scanner
-      uses: anchore/scan-action@v3
+    - name: OWASP Dependency-Check
+      uses: dependency-check/Dependency-Check_Action@main
       with:
-        path: "."
-        fail-build: false # Не ломаем билд, чтобы сохранить артефакты для отчета
-        output-format: "table"
-        output-file: "grype_report.txt"
+        project: 'jpeg-parser-lab'
+        path: '.'
+        format: 'HTML'
+        args: >
+          --failOnCVSS 0
+          --enableRetired
+      # Примечание: failOnCVSS 0 означает, что он просто соберет отчет и не упадет с ошибкой,
+      # чтобы мы гарантированно получили артефакт для отчета, даже если найдены уязвимости.
 
-    - name: Upload Grype Report
+    - name: Upload Dependency-Check Report
       uses: actions/upload-artifact@v4
       with:
-        name: grype-sca-report
-        path: grype_report.txt
+        name: owasp-dependency-check-report
+        path: reports/dependency-check-report.html
