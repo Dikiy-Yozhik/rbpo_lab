@@ -1,0 +1,64 @@
+name: SCA Security Scan (2 Tools)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  sca-scan:
+    runs-on: ubuntu-22.04
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # ==========================================
+    # ИНСТРУМЕНТ 1: TRIVY (Filesystem Scan)
+    # ==========================================
+    - name: Run Trivy vulnerability scanner (FS)
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'table'
+        output: 'trivy_report.txt'
+        severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+        # Trivy автоматически просканирует CMakeLists.txt на наличие известных уязвимых версий
+
+    - name: Upload Trivy Report
+      uses: actions/upload-artifact@v4
+      with:
+        name: trivy-sca-report
+        path: trivy_report.txt
+
+    - name: Run Trivy SARIF scan (for GitHub Security tab)
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy SARIF to GitHub Security
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: 'trivy-results.sarif'
+      if: always()
+
+    # ==========================================
+    # ИНСТРУМЕНТ 2: GRYPE (через Anchore Scan Action)
+    # ==========================================
+    - name: Run Grype vulnerability scanner
+      uses: anchore/scan-action@v3
+      with:
+        path: "."
+        fail-build: false # Не ломаем билд, чтобы сохранить артефакты для отчета
+        output-format: "table"
+        output-file: "grype_report.txt"
+
+    - name: Upload Grype Report
+      uses: actions/upload-artifact@v4
+      with:
+        name: grype-sca-report
+        path: grype_report.txt
