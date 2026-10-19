@@ -1,0 +1,25 @@
+# Build directories
+build/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local test data (optional, but good practice)
+input/*.jpg
+input/*.png
+output/*.txt
+
+# Python cache
+__pycache__/
+*.pyc
