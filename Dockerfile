@@ -12,9 +12,9 @@ RUN apt-get update && apt-get install -y \
 
 # --- ЭТАП 1: Сборка уязвимой libjpeg 9c ---
 WORKDIR /tmp
-RUN wget https://www.ijg.org/files/jpegsrc.v9c.tar.gz && \
-    tar -xzf jpegsrc.v9c.tar.gz && \
-    cd jpeg-9c && \
+RUN wget https://www.ijg.org/files/jpegsrc.v9e.tar.gz && \
+    tar -xzf jpegsrc.v9e.tar.gz && \
+    cd jpeg-9e && \
     ./configure --prefix=/usr/local && \
     make && \
     make install && \
