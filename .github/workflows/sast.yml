@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Install SAST tools
       run: |
@@ -36,30 +36,28 @@ jobs:
         echo "| Tool | Status | Report |" >> $GITHUB_STEP_SUMMARY
         echo "|------|--------|--------|" >> $GITHUB_STEP_SUMMARY
         
-        # Проверяем, есть ли находки в Cppcheck
-        if grep -q "error:" cppcheck_report.txt; then
-          echo "| Cppcheck | ❌ Issues Found | [Download](#) |" >> $GITHUB_STEP_SUMMARY
+        if [ -f cppcheck_report.txt ] && grep -q "error:" cppcheck_report.txt; then
+          echo "| Cppcheck | ❌ Issues Found | See Artifacts ⬇️ |" >> $GITHUB_STEP_SUMMARY
         else
-          echo "| Cppcheck | ✅ Clean | [Download](#) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Cppcheck | ✅ Clean | See Artifacts ⬇️ |" >> $GITHUB_STEP_SUMMARY
         fi
         
-        # Проверяем, есть ли находки в Flawfinder
-        if grep -q "Hits = [1-9]" flawfinder_report.html; then
-          echo "| Flawfinder | ❌ Issues Found | [Download](#) |" >> $GITHUB_STEP_SUMMARY
+        if [ -f flawfinder_report.html ] && grep -q "Hits = [1-9]" flawfinder_report.html; then
+          echo "| Flawfinder | ❌ Issues Found | See Artifacts ⬇️ |" >> $GITHUB_STEP_SUMMARY
         else
-          echo "| Flawfinder | ✅ Clean | [Download](#) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Flawfinder | ✅ Clean | See Artifacts ⬇️ |" >> $GITHUB_STEP_SUMMARY
         fi
 
     - name: Upload Cppcheck Report
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: cppcheck-report
         path: cppcheck_report.txt
 
     - name: Upload Flawfinder Report
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: flawfinder-report
         path: flawfinder_report.html
@@ -67,7 +65,11 @@ jobs:
     - name: Fail if vulnerabilities found
       if: always()
       run: |
-        if grep -q "error:" cppcheck_report.txt || grep -q "Hits = [1-9]" flawfinder_report.html; then
-          echo "❌ Security vulnerabilities detected! Check reports."
+        if [ -f cppcheck_report.txt ] && grep -q "error:" cppcheck_report.txt; then
+          echo "❌ Cppcheck found vulnerabilities!"
+          exit 1
+        fi
+        if [ -f flawfinder_report.html ] && grep -q "Hits = [1-9]" flawfinder_report.html; then
+          echo "❌ Flawfinder found vulnerabilities!"
           exit 1
         fi
