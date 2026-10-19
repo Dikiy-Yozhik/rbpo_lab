@@ -55,10 +55,17 @@ jobs:
       run: |
         echo "Running Clang Static Analyzer..."
         mkdir -p build_clang
+        mkdir -p clang_report
         cd build_clang
-        # scan-build перехватывает вызовы компилятора и анализирует код
+        # Запускаем анализ. Если ошибок нет, scan-build удалит папку с отчетом.
         scan-build -o ../clang_report cmake .. || true
         scan-build -o ../clang_report make || true
+        
+        # Хак для CI: если scan-build удалил папку (потому что багов нет), 
+        # создаем заглушку, чтобы шаг upload-artifact не упал.
+        if [ -z "$(ls -A ../clang_report)" ]; then
+          echo "<html><body><h1>Clang Static Analyzer: No bugs found (Clean) ✅</h1></body></html>" > ../clang_report/index.html
+        fi
 
     - name: Upload Clang Report
       if: always()

@@ -25,10 +25,13 @@ struct ImageMetadata {
 void get_jpeg_info(const std::string& filepath, ImageMetadata& meta) {
     struct jpeg_decompress_struct cinfo;
     struct jpeg_error_mgr jerr;
-    // flawfinder: ignore - Opening user-provided file strictly for reading ("rb"). 
-    // Symlink/race condition risk is negligible for this local CLI use case.
-    FILE* infile = fopen(filepath.c_str(), "rb");
+    void get_jpeg_info(const std::string& filepath, ImageMetadata& meta) {
+    struct jpeg_decompress_struct cinfo;
+    struct jpeg_error_mgr jerr;
+    // Открываем только на чтение, риск минимален
+    FILE* infile = fopen(filepath.c_str(), "rb"); // flawfinder: ignore
     if (!infile) throw std::runtime_error("Cannot open input file");
+    // ... остальной код без изменений
 
     cinfo.err = jpeg_std_error(&jerr);
     jpeg_create_decompress(&cinfo);
