@@ -24,7 +24,8 @@ jobs:
     - name: Run Cppcheck
       run: |
         echo "Running Cppcheck..."
-        cppcheck --enable=all --inconclusive --std=c++17 --error-exitcode=1 main.cpp 2> cppcheck_report.txt || true
+        # Добавлен --suppress=missingInclude, чтобы Cppcheck не ломался из-за отсутствия jpeglib.h в CI
+        cppcheck --enable=all --inconclusive --std=c++17 --suppress=missingInclude --error-exitcode=1 main.cpp 2> cppcheck_report.txt || true
 
     - name: Upload Cppcheck Report
       if: always()
@@ -49,7 +50,7 @@ jobs:
         path: flawfinder_report.html
 
     # ==========================================
-    # ИНСТРУМЕНТ 3: CLANG STATIC ANALYZER (scan-build)
+    # ИНСТРУМЕНТ 3: CLANG STATIC ANALYZER
     # ==========================================
     - name: Run Clang Static Analyzer
       run: |
@@ -57,14 +58,19 @@ jobs:
         mkdir -p build_clang
         mkdir -p clang_report
         cd build_clang
-        # Запускаем анализ. Если ошибок нет, scan-build удалит папку с отчетом.
+        
+        # Запускаем анализ
         scan-build -o ../clang_report cmake .. || true
         scan-build -o ../clang_report make || true
         
-        # Хак для CI: если scan-build удалил папку (потому что багов нет), 
-        # создаем заглушку, чтобы шаг upload-artifact не упал.
-        if [ -z "$(ls -A ../clang_report)" ]; then
+        # Проверяем, создал ли scan-build свою папку с отчетом (имя начинается с даты, напр. 2026-10-19-...)
+        # Если такая папка есть, значит, scan-build нашел ошибки и не удалил её.
+        if ls ../clang_report | grep -qE "^[0-9]{4}-[0-9]{2}-[0-9]{2}"; then
+          echo "CLANG_STATUS=❌ Issues Found" >> $GITHUB_ENV
+        else
+          # Если папки с датой нет, значит ошибок нет. Создаем заглушку для артефакта.
           echo "<html><body><h1>Clang Static Analyzer: No bugs found (Clean) ✅</h1></body></html>" > ../clang_report/index.html
+          echo "CLANG_STATUS=✅ Clean" >> $GITHUB_ENV
         fi
 
     - name: Upload Clang Report
@@ -97,11 +103,7 @@ jobs:
           echo "| Flawfinder | ✅ Clean | See Artifacts ⬇️ |" >> $GITHUB_STEP_SUMMARY
         fi
         
-        if [ -d clang_report ] && [ "$(ls -A clang_report)" ]; then
-          echo "| Clang SA | ❌ Issues Found | See Artifacts ⬇️ |" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "| Clang SA | ✅ Clean | See Artifacts ⬇️ |" >> $GITHUB_STEP_SUMMARY
-        fi
+        echo "| Clang SA | ${{ env.CLANG_STATUS }} | See Artifacts ⬇️ |" >> $GITHUB_STEP_SUMMARY
 
     - name: Fail if vulnerabilities found
       if: always()
@@ -115,8 +117,8 @@ jobs:
           echo "❌ Flawfinder found vulnerabilities!"
           FAILED=1
         fi
-        # Для Clang мы не фейлим билд жестко, так как он часто выдает предупреждения стиля, 
-        # но артефакт сохранен для проверки преподавателем.
+        # Clang мы не считаем критическим провалом, если это просто warning стиля, 
+        # но если он нашел реальные баги, это отразится в артефакте.
         
         if [ $FAILED -eq 1 ]; then
           exit 1
