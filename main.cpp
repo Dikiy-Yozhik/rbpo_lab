@@ -25,13 +25,9 @@ struct ImageMetadata {
 void get_jpeg_info(const std::string& filepath, ImageMetadata& meta) {
     struct jpeg_decompress_struct cinfo;
     struct jpeg_error_mgr jerr;
-    void get_jpeg_info(const std::string& filepath, ImageMetadata& meta) {
-    struct jpeg_decompress_struct cinfo;
-    struct jpeg_error_mgr jerr;
-    // Открываем только на чтение, риск минимален
-    FILE* infile = fopen(filepath.c_str(), "rb"); // flawfinder: ignore
+    // flawfinder: ignore - Opening strictly for reading ("rb"), race condition risk is negligible.
+    FILE* infile = fopen(filepath.c_str(), "rb");
     if (!infile) throw std::runtime_error("Cannot open input file");
-    // ... остальной код без изменений
 
     cinfo.err = jpeg_std_error(&jerr);
     jpeg_create_decompress(&cinfo);
@@ -79,7 +75,6 @@ void scan_markers(const std::string& filepath, ImageMetadata& meta) {
     }
 }
 
-// ИСПРАВЛЕНИЕ 1: Безопасная работа с памятью
 std::string extract_comment_manual(const std::string& filepath) {
     std::ifstream file(filepath, std::ios::binary);
     std::vector<uint8_t> buffer((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
@@ -91,10 +86,7 @@ std::string extract_comment_manual(const std::string& filepath) {
             uint16_t seg_len = (buffer[i+2] << 8) | buffer[i+3];
             uint16_t comment_len = seg_len - 2;
 
-            // ПРОВЕРКА ГРАНИЦ: убеждаемся, что comment_len не превышает реальные данные
-            // И ограничиваем разумным максимумом, чтобы избежать DoS
             if (comment_len > 0 && comment_len <= 4096 && (i + 4 + comment_len <= buffer.size())) {
-                // Безопасное копирование: выделяем ровно столько, сколько нужно
                 std::string result(reinterpret_cast<const char*>(&buffer[i+4]), comment_len);
                 return result;
             }
@@ -103,20 +95,12 @@ std::string extract_comment_manual(const std::string& filepath) {
     return "";
 }
 
-// ИСПРАВЛЕНИЕ 2: Защита от Path Traversal
 void save_report(const std::string& user_filename, const ImageMetadata& meta) {
-    // Санитизация: удаляем любые символы '/', '\' и последовательности '..'
     std::string safe_filename = user_filename;
     size_t pos;
-    while ((pos = safe_filename.find("..")) != std::string::npos) {
-        safe_filename.erase(pos, 2);
-    }
-    while ((pos = safe_filename.find("/")) != std::string::npos) {
-        safe_filename.erase(pos, 1);
-    }
-    while ((pos = safe_filename.find("\\")) != std::string::npos) {
-        safe_filename.erase(pos, 1);
-    }
+    while ((pos = safe_filename.find("..")) != std::string::npos) safe_filename.erase(pos, 2);
+    while ((pos = safe_filename.find("/")) != std::string::npos) safe_filename.erase(pos, 1);
+    while ((pos = safe_filename.find("\\")) != std::string::npos) safe_filename.erase(pos, 1);
 
     if (safe_filename.empty()) {
         std::cerr << "Invalid filename after sanitization.\n";
