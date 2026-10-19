@@ -19,7 +19,7 @@ jobs:
       uses: actions/checkout@v4
 
     # ==========================================
-    # ШАГ 1: Собираем Docker-образ (именно здесь скачивается libjpeg 9c)
+    # ШАГ 1: Собираем Docker-образ (здесь скачивается libjpeg 9c)
     # ==========================================
     - name: Build Docker Image
       run: docker build -f Dockerfile.sca -t jpeg-lab-sca .
@@ -30,12 +30,12 @@ jobs:
     - name: Run Trivy on Docker Image
       uses: aquasecurity/trivy-action@master
       with:
-        scan-type: 'image'       # <-- ВАЖНО: сканируем образ, а не fs
+        scan-type: 'image'
         image-ref: 'jpeg-lab-sca'
         format: 'table'
         output: 'trivy_report.txt'
         severity: 'CRITICAL,HIGH,MEDIUM,LOW'
-        exit-code: '0'           # Не прерываем workflow, чтобы сохранить артефакты
+        exit-code: '0' # Не прерываем, чтобы сохранить отчет
 
     - name: Upload Trivy Report
       uses: actions/upload-artifact@v4
@@ -50,22 +50,23 @@ jobs:
         image-ref: 'jpeg-lab-sca'
         format: 'sarif'
         output: 'trivy-results.sarif'
+      continue-on-error: true # Защита от каскадных сбоев
 
     - name: Upload Trivy SARIF to GitHub Security
       uses: github/codeql-action/upload-sarif@v3
       with:
         sarif_file: 'trivy-results.sarif'
       if: always()
+      continue-on-error: true # Игнорируем предупреждения GitHub о версиях
 
     # ==========================================
     # ИНСТРУМЕНТ 2: GRYPE (Сканирование образа)
     # ==========================================
-    # Сканирование образа работает у Grype НАМНОГО быстрее и стабильнее, 
-    # чем сканирование файловой системы, так как он использует готовые эвристики для слоев Docker.
+    - name: Install Grype
+      run: curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+
     - name: Run Grype on Docker Image
-      run: |
-        curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
-        grype jpeg-lab-sca --output table > grype_report.txt || true
+      run: grype jpeg-lab-sca --output table > grype_report.txt || true
 
     - name: Upload Grype Report
       uses: actions/upload-artifact@v4
