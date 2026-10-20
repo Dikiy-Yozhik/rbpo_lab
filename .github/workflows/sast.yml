@@ -1,125 +1,90 @@
-name: SAST Security Scan (3 Tools)
+name: SCA Security Scan (SBOM + 2 Scanners)
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "main", "master", "vulnerable" ]
   pull_request:
-    branches: [ "main", "master" ]
+    branches: [ "main", "master", "vulnerable" ]
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
 
 jobs:
-  sast-scan:
+  sca-scan:
     runs-on: ubuntu-22.04
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install SAST tools
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y cppcheck flawfinder clang clang-tools
+    # ==========================================
+    # ШАГ 1: СБОРКА ОБРАЗА
+    # ==========================================
+    - name: Build Docker Image
+      run: docker build -t jpeg-lab-sca .
 
     # ==========================================
-    # ИНСТРУМЕНТ 1: CPPCHECK
+    # ШАГ 2: ГЕНЕРАЦИЯ SBOM (Требование лабы)
     # ==========================================
-    - name: Run Cppcheck
-      run: |
-        echo "Running Cppcheck..."
-        # Добавлен --suppress=missingInclude, чтобы Cppcheck не ломался из-за отсутствия jpeglib.h в CI
-        cppcheck --enable=all --inconclusive --std=c++17 --suppress=missingInclude --error-exitcode=1 main.cpp 2> cppcheck_report.txt || true
+    - name: Generate SBOM with Syft
+      uses: anchore/sbom-action@v0
+      with:
+        image: jpeg-lab-sca
+        format: json
+        output-file: sbom.json
 
-    - name: Upload Cppcheck Report
-      if: always()
+    - name: Upload SBOM Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: cppcheck-report
-        path: cppcheck_report.txt
+        name: sbom-json
+        path: sbom.json
 
     # ==========================================
-    # ИНСТРУМЕНТ 2: FLAWFINDER
+    # ШАГ 3: ИНСТРУМЕНТ 1 - TRIVY (Сканирование образа)
     # ==========================================
-    - name: Run Flawfinder
-      run: |
-        echo "Running Flawfinder..."
-        flawfinder --minlevel=1 --html main.cpp > flawfinder_report.html || true
+    - name: Run Trivy on Docker Image
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'image'
+        image-ref: 'jpeg-lab-sca'
+        format: 'table'
+        output: 'trivy_report.txt'
+        severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+        exit-code: '0'
 
-    - name: Upload Flawfinder Report
-      if: always()
+    - name: Upload Trivy Report
       uses: actions/upload-artifact@v4
       with:
-        name: flawfinder-report
-        path: flawfinder_report.html
+        name: trivy-image-report
+        path: trivy_report.txt
 
-    # ==========================================
-    # ИНСТРУМЕНТ 3: CLANG STATIC ANALYZER
-    # ==========================================
-    - name: Run Clang Static Analyzer
-      run: |
-        echo "Running Clang Static Analyzer..."
-        mkdir -p build_clang
-        mkdir -p clang_report
-        cd build_clang
-        
-        # Запускаем анализ
-        scan-build -o ../clang_report cmake .. || true
-        scan-build -o ../clang_report make || true
-        
-        # Проверяем, создал ли scan-build свою папку с отчетом (имя начинается с даты, напр. 2026-10-19-...)
-        # Если такая папка есть, значит, scan-build нашел ошибки и не удалил её.
-        if ls ../clang_report | grep -qE "^[0-9]{4}-[0-9]{2}-[0-9]{2}"; then
-          echo "CLANG_STATUS=❌ Issues Found" >> $GITHUB_ENV
-        else
-          # Если папки с датой нет, значит ошибок нет. Создаем заглушку для артефакта.
-          echo "<html><body><h1>Clang Static Analyzer: No bugs found (Clean) ✅</h1></body></html>" > ../clang_report/index.html
-          echo "CLANG_STATUS=✅ Clean" >> $GITHUB_ENV
-        fi
+    - name: Run Trivy SARIF scan
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'image'
+        image-ref: 'jpeg-lab-sca'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
 
-    - name: Upload Clang Report
+    - name: Upload Trivy SARIF to GitHub Security
+      uses: github/codeql-action/upload-sarif@v4
+      with:
+        sarif_file: 'trivy-results.sarif'
+      continue-on-error: true
       if: always()
+
+    # ==========================================
+    # ШАГ 4: ИНСТРУМЕНТ 2 - GRYPE (Сканирование SBOM)
+    # ==========================================
+    - name: Run Grype on SBOM
+      run: |
+        curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+        # Grype сканирует именно сгенерированный SBOM-файл, а не образ заново
+        grype sbom:sbom.json --output table > grype_report.txt || true
+
+    - name: Upload Grype Report
       uses: actions/upload-artifact@v4
       with:
-        name: clang-report
-        path: clang_report/
-
-    # ==========================================
-    # СВОДКА И ПРОВЕРКА СТАТУСА
-    # ==========================================
-    - name: Generate Job Summary
-      if: always()
-      run: |
-        echo "## 🔍 SAST Scan Results (3 Tools)" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "| Tool | Status | Report |" >> $GITHUB_STEP_SUMMARY
-        echo "|------|--------|--------|" >> $GITHUB_STEP_SUMMARY
-        
-        if [ -f cppcheck_report.txt ] && grep -q "error:" cppcheck_report.txt; then
-          echo "| Cppcheck | ❌ Issues Found | See Artifacts ⬇️ |" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "| Cppcheck | ✅ Clean | See Artifacts ⬇️ |" >> $GITHUB_STEP_SUMMARY
-        fi
-        
-        if [ -f flawfinder_report.html ] && grep -q "Hits = [1-9]" flawfinder_report.html; then
-          echo "| Flawfinder | ❌ Issues Found | See Artifacts ⬇️ |" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "| Flawfinder | ✅ Clean | See Artifacts ⬇️ |" >> $GITHUB_STEP_SUMMARY
-        fi
-        
-        echo "| Clang SA | ${{ env.CLANG_STATUS }} | See Artifacts ⬇️ |" >> $GITHUB_STEP_SUMMARY
-
-    - name: Fail if vulnerabilities found
-      if: always()
-      run: |
-        FAILED=0
-        if [ -f cppcheck_report.txt ] && grep -q "error:" cppcheck_report.txt; then
-          echo "❌ Cppcheck found vulnerabilities!"
-          FAILED=1
-        fi
-        if [ -f flawfinder_report.html ] && grep -q "Hits = [1-9]" flawfinder_report.html; then
-          echo "❌ Flawfinder found vulnerabilities!"
-          FAILED=1
-        fi
-        # Clang мы не считаем критическим провалом, если это просто warning стиля, 
-        # но если он нашел реальные баги, это отразится в артефакте.
-        
-        if [ $FAILED -eq 1 ]; then
-          exit 1
-        fi
+        name: grype-sbom-report
+        path: grype_report.txt
