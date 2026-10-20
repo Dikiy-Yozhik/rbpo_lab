@@ -1,10 +1,10 @@
-name: SCA Security Scan (Docker Image)
+name: SCA Security Scan (SBOM + 2 Scanners)
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "main", "master", "vulnerable" ]
   pull_request:
-    branches: [ "main", "master" ]
+    branches: [ "main", "master", "vulnerable" ]
 
 permissions:
   contents: read
@@ -19,13 +19,29 @@ jobs:
       uses: actions/checkout@v4
 
     # ==========================================
-    # СБОРКА ОБРАЗА (Используем единственный Dockerfile из репозитория)
+    # ШАГ 1: СБОРКА ОБРАЗА
     # ==========================================
     - name: Build Docker Image
       run: docker build -t jpeg-lab-sca .
 
     # ==========================================
-    # ИНСТРУМЕНТ 1: TRIVY (Сканирование образа)
+    # ШАГ 2: ГЕНЕРАЦИЯ SBOM (Требование лабы)
+    # ==========================================
+    - name: Generate SBOM with Syft
+      uses: anchore/sbom-action@v0
+      with:
+        image: jpeg-lab-sca
+        format: json
+        output-file: sbom.json
+
+    - name: Upload SBOM Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: sbom-json
+        path: sbom.json
+
+    # ==========================================
+    # ШАГ 3: ИНСТРУМЕНТ 1 - TRIVY (Сканирование образа)
     # ==========================================
     - name: Run Trivy on Docker Image
       uses: aquasecurity/trivy-action@master
@@ -35,7 +51,7 @@ jobs:
         format: 'table'
         output: 'trivy_report.txt'
         severity: 'CRITICAL,HIGH,MEDIUM,LOW'
-        exit-code: '0' # Не падаем, чтобы сохранить артефакты для отчета
+        exit-code: '0'
 
     - name: Upload Trivy Report
       uses: actions/upload-artifact@v4
@@ -52,21 +68,23 @@ jobs:
         output: 'trivy-results.sarif'
 
     - name: Upload Trivy SARIF to GitHub Security
-      uses: github/codeql-action/upload-sarif@v4  # ОБНОВЛЕНО ДО v4
+      uses: github/codeql-action/upload-sarif@v4
       with:
         sarif_file: 'trivy-results.sarif'
+      continue-on-error: true
       if: always()
 
     # ==========================================
-    # ИНСТРУМЕНТ 2: GRYPE (Сканирование образа)
+    # ШАГ 4: ИНСТРУМЕНТ 2 - GRYPE (Сканирование SBOM)
     # ==========================================
-    - name: Run Grype on Docker Image
+    - name: Run Grype on SBOM
       run: |
         curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
-        grype jpeg-lab-sca --output table > grype_report.txt || true
+        # Grype сканирует именно сгенерированный SBOM-файл, а не образ заново
+        grype sbom:sbom.json --output table > grype_report.txt || true
 
     - name: Upload Grype Report
       uses: actions/upload-artifact@v4
       with:
-        name: grype-image-report
+        name: grype-sbom-report
         path: grype_report.txt
